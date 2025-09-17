@@ -41,33 +41,50 @@ jobs:
         with:
           app-id: ${{ secrets.HUB_APP_ID }}
           private-key: ${{ secrets.HUB_APP_PRIVATE_KEY }}
+          owner: UKHomeOffice
 
-      - name: Checkout repository ${{ matrix.repo }}
+      - name: Checkout hub repository
+        uses: actions/checkout@v4
+        with:
+          repository: UKHomeOffice/core-cloud-workflows-actions-sync
+          token: ${{ steps.generate-token.outputs.token }}
+          path: hub
+          fetch-depth: 0
+
+      - name: Checkout source repository ${{ matrix.repo }}
         uses: actions/checkout@v4
         with:
           repository: UKHomeOffice/${{ matrix.repo }}
           token: ${{ steps.generate-token.outputs.token }}
-          path: ${{ matrix.repo }}
+          path: source-repo
           fetch-depth: 0
 
-      - name: Mirror ${{ matrix.repo }} to Hub Repo
+      - name: Sync ${{ matrix.repo }} to Hub Repository
         env:
           APP_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
-          cd ${{ matrix.repo }}
+          cd hub
           
-          # Set up git configuration
           git config user.name "workflows-actions-sync[bot]"
           git config user.email "workflows-actions-sync[bot]@users.noreply.github.com"
           
-          # Show current remotes for debugging
-          echo "Current git remotes:"
-          git remote -v
+          REPO_DIR="workflows/${{ matrix.repo }}"
           
-          # Show what we're about to push
-          echo "Repository status:"
-          git status
-          git log --oneline -5
+          if [ -d "$REPO_DIR" ]; then
+            rm -rf "$REPO_DIR"
+          fi
           
-          # Perform the mirror push
-          git push --mirror "https://x-access-token:$APP_TOKEN@github.com/UKHomeOffice/${{ matrix.repo }}.git"
+          mkdir -p "$REPO_DIR"
+          
+          cp -r ../source-repo/* "$REPO_DIR/" 2>/dev/null || true
+          cp -r ../source-repo/.[^.]* "$REPO_DIR/" 2>/dev/null || true
+          
+          git add "$REPO_DIR"
+          
+          if ! git diff --staged --quiet; then
+            git commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git push origin main
+            echo "✅ Successfully synced ${{ matrix.repo }} to hub"
+          else
+            echo "ℹ️ No changes detected for ${{ matrix.repo }}"
+          fi
