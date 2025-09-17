@@ -53,7 +53,9 @@ jobs:
       - name: Mirror ${{ matrix.repo }} to Hub Repo
         env:
           APP_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
+          gh api octocat
           echo "Mirroring ${{ matrix.repo }} to the Hub repo..."
           cd ${{ matrix.repo }}
           git config --global credential.helper store
