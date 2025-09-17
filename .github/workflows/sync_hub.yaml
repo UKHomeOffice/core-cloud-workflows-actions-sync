@@ -59,14 +59,33 @@ jobs:
           path: source-repo
           fetch-depth: 0
 
+      - name: Import GPG key and Configure Git
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GIT_USER_NAME: "workflows-actions-sync[bot]"
+          GIT_USER_EMAIL: "workflows-actions-sync[bot]@users.noreply.github.com"
+        run: |
+          # Import the GPG key
+          GPG_KEY_ID=$(echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes 2>&1 | grep 'secret key imported' | awk '{print $4}')
+
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "Failed to import GPG key."
+            exit 1
+          fi
+
+          echo "GPG Key imported with ID: $GPG_KEY_ID"
+
+          # Configure git
+          git config --global user.name "$GIT_USER_NAME"
+          git config --global user.email "$GIT_USER_EMAIL"
+          git config --global user.signingkey "$GPG_KEY_ID"
+          git config --global commit.gpgsign true
+
       - name: Sync ${{ matrix.repo }} to Hub Repository
         env:
           APP_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
           cd hub
-          
-          git config user.name "workflows-actions-sync[bot]"
-          git config user.email "workflows-actions-sync[bot]@users.noreply.github.com"
           
           REPO_DIR="workflows/${{ matrix.repo }}"
           
