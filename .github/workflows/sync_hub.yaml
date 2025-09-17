@@ -1,0 +1,45 @@
+name: Sync Public Workflows to Hub
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+  #schedule:
+    # Run hourly
+    #- cron: '0 * * * *'
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      repos: ${{ steps.set-matrix.outputs.repos }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate matrix from workflow_repos.txt
+        id: set-matrix
+        run: |
+          repos_json=$(jq -c -R -s 'split("\n") | map(select(length > 0))' workflow_repos.txt)
+          echo "repos=${repos_json}" >> $GITHUB_OUTPUT
+
+  sync-to-hub:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJSON(needs.generate-matrix.outputs.repos) }}
+    steps:
+      - name: Sync ${{ matrix.repo }} to Hub
+        run: |
+          echo "Syncing public repo ${{ matrix.repo }} to the Hub..."
+          
+          # Clone the public repository as a bare repo
+          git clone --bare https://github.com/UKHomeOffice/${{ matrix.repo }}.git
+          cd ${{ matrix.repo }}.git
+          
+          # Mirror all branches and tags
+          git push --mirror https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/UKHomeOffice/${{ matrix.repo }}.git

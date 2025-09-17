@@ -1,0 +1,2 @@
+core-cloud-workflow-checkov-sast-scan
+core-cloud-workflow-sonarqube-scan
