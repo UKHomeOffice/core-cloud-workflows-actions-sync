@@ -49,7 +49,7 @@ jobs:
           echo "Syncing public repo ${{ matrix.repo }} to the Hub..."
           
           # Clone the public repository as a bare repo
-          git clone --bare https://github.com/UKHomeOffice/${{ matrix.repo }}.git
+          git clone --bare https://x-access-token:${{ env.APP_TOKEN }}@github.com/UKHomeOffice/${{ matrix.repo }}.git
           cd ${{ matrix.repo }}.git
           
           # Mirror all branches and tags
