@@ -66,16 +66,17 @@ jobs:
           GIT_USER_EMAIL: "workflows-actions-sync[bot]@users.noreply.github.com"
         run: |
           # Import the GPG key
-          GPG_KEY_ID=$(echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes 2>&1 | grep 'secret key imported' | awk '{print $4}')
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes
+
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec:' | head -n 1 | cut -d: -f5)
 
           if [ -z "$GPG_KEY_ID" ]; then
-            echo "Failed to import GPG key."
+            echo "Failed to find GPG key ID after import."
             exit 1
           fi
 
-          echo "GPG Key imported with ID: $GPG_KEY_ID"
+          echo "Successfully imported GPG key with ID: $GPG_KEY_ID"
 
-          # Configure git
           git config --global user.name "$GIT_USER_NAME"
           git config --global user.email "$GIT_USER_EMAIL"
           git config --global user.signingkey "$GPG_KEY_ID"
