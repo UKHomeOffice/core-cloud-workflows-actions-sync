@@ -42,21 +42,17 @@ jobs:
           app-id: ${{ secrets.HUB_APP_ID }}
           private-key: ${{ secrets.HUB_APP_PRIVATE_KEY }}
 
-      - name: Checkout repository debug
+      - name: Checkout repository ${{ matrix.repo }}
         uses: actions/checkout@v4
         with:
           repository: UKHomeOffice/${{ matrix.repo }}
           token: ${{ steps.generate-token.outputs.token }}
+          path: ${{ matrix.repo }}
 
       - name: Sync ${{ matrix.repo }} to Hub
         env:
           APP_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
-          echo "Syncing public repo ${{ matrix.repo }} to the Hub..."
-          
-          # Clone the public repository as a bare repo
-          git clone --bare https://x-access-token:${{ env.APP_TOKEN }}@github.com/UKHomeOffice/${{ matrix.repo }}.git
-          cd ${{ matrix.repo }}.git
-          
-          # Mirror all branches and tags
+          echo "Mirroring ${{ matrix.repo }} to the Hub repo..."
+          cd ${{ matrix.repo }}
           git push --mirror https://x-access-token:${{ env.APP_TOKEN }}@github.com/UKHomeOffice/${{ matrix.repo }}.git
