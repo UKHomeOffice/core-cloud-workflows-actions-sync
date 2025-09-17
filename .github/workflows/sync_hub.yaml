@@ -63,7 +63,7 @@ jobs:
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GIT_USER_NAME: "workflows-actions-sync[bot]"
-          GIT_USER_EMAIL: "workflows-actions-sync[bot]@users.noreply.github.com"
+          GIT_USER_EMAIL: "${{ secrets.HUB_APP_ID }}+workflows-actions-sync[bot]@users.noreply.github.com"
         run: |
           # Import the GPG key
           echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes
