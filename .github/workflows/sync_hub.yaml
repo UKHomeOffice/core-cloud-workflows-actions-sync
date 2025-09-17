@@ -86,7 +86,7 @@ jobs:
           APP_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
           cd hub
-          
+          gpg --list-secret-keys
           REPO_DIR="workflows/${{ matrix.repo }}"
           
           if [ -d "$REPO_DIR" ]; then
