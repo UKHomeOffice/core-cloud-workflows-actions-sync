@@ -59,6 +59,63 @@ jobs:
           path: source-repo
           fetch-depth: 0
 
+      - name: Sync and Commit via API for ${{ matrix.repo }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          REPO_FULL_NAME: "UKHomeOffice/core-cloud-workflows-actions-sync"
+        run: |
+          mkdir -p "./hub/workflows/${{ matrix.repo }}"
+          rsync -av --delete --exclude='.git' "./source-repo/" "./hub/workflows/${{ matrix.repo }}/"
+          echo "File sync complete."
+
+          cd ./hub
+
+          LATEST_COMMIT_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/ref/heads/main" --jq '.object.sha')
+          if [[ -z "$LATEST_COMMIT_SHA" ]]; then echo "Error: Could not get latest commit SHA."; exit 1; fi
+          echo "✅ Got latest commit SHA: $LATEST_COMMIT_SHA"
+
+          BASE_TREE_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/commits/${LATEST_COMMIT_SHA}" --jq '.tree.sha')
+          if [[ -z "$BASE_TREE_SHA" ]]; then echo "Error: Could not get base tree SHA."; exit 1; fi
+          echo "✅ Got base tree SHA: $BASE_TREE_SHA"
+
+          tree_data=()
+          while IFS= read -r -d '' line; do
+            status=${line:0:2}
+            path=${line:3}
+            mode="100644" # Assume standard file mode
+
+            if [[ -d "$path" ]]; then
+              continue
+            fi
+
+            if [[ "$status" == " D" ]]; then
+              # Handle deleted files
+              tree_data+=("{\"path\":\"${path}\",\"mode\":\"${mode}\",\"sha\":null}")
+            elif [[ "$status" == "??" || "$status" == " M" || "$status" == " A" ]]; then
+              # Handle new or modified files
+              blob_sha=$(gh api repos/${REPO_FULL_NAME}/git/blobs -f content="$(cat "$path")" -f encoding="utf-8" --jq '.sha')
+              tree_data+=("{\"path\":\"${path}\",\"mode\":\"${mode}\",\"type\":\"blob\",\"sha\":\"${blob_sha}\"}")
+            fi
+          done < <(git status --porcelain -z)
+
+          if [ ${#tree_data[@]} -eq 0 ]; then
+            echo "✅ No committable changes found after processing status. Exiting."
+            exit 0
+          fi
+          tree_json=$(IFS=,; echo "[${tree_data[*]}]")
+          NEW_TREE_SHA=$(gh api repos/${REPO_FULL_NAME}/git/trees -f "tree=${tree_json}" -f "base_tree=${BASE_TREE_SHA}" --jq '.sha')
+          if [[ -z "$NEW_TREE_SHA" ]]; then echo "Error: Failed to create new tree object."; exit 1; fi
+          echo "✅ Created new tree with SHA: $NEW_TREE_SHA"
+
+          COMMIT_MESSAGE="Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          NEW_COMMIT_SHA=$(gh api repos/${REPO_FULL_NAME}/git/commits -f message="$COMMIT_MESSAGE" -f tree="$NEW_TREE_SHA" -f "parents[]=$LATEST_COMMIT_SHA" --jq '.sha')
+          if [[ -z "$NEW_COMMIT_SHA" ]]; then echo "Error: Failed to create new commit object."; exit 1; fi
+          echo "✅ Created new commit with SHA: $NEW_COMMIT_SHA"
+
+          gh api repos/${REPO_FULL_NAME}/git/refs/heads/main -X PATCH -f sha="$NEW_COMMIT_SHA"
+          echo "🎉 Successfully pushed verified commit to main branch."
+
       - name: Import GPG key and Configure Git
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
