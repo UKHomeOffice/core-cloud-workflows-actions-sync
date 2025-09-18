@@ -92,6 +92,11 @@ jobs:
           SOURCE_DIR="./source-repo"
           DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
 
+          echo "Workspace content:"
+          ls -la
+          echo "Hub content:"
+          ls -la "$HUB_DIR"
+          echo "Attempting to create directory: [$DEST_DIR]"
           mkdir -p "$REPO_DIR"
 
           # Use rsync to copy files without the .git directory
