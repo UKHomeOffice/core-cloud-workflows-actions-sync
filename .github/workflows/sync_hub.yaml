@@ -88,19 +88,23 @@ jobs:
 
       - name: Sync ${{ matrix.repo }} to Hub Repository
         run: |
-          cd hub
-          REPO_DIR="workflows/${{ matrix.repo }}"
+          HUB_DIR="./hub"
+          SOURCE_DIR="./source-repo"
+          DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
 
           mkdir -p "$REPO_DIR"
 
           # Use rsync to copy files without the .git directory
-          rsync -av --delete --exclude='.git' ../source-repo/ "$REPO_DIR/"
+          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "$DEST_DIR/"
 
-          if ! git diff --staged --quiet; then
-            git add "$REPO_DIR"
-            git commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            # Push using the app token for authentication
-            git push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" main
+          git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
+
+          if ! git -C "$HUB_DIR" diff --staged --quiet; then
+            echo "Changes detected. Committing and pushing..."
+            git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            
+            # Push the signed commit
+            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/<YOUR_ORG>/hub-repo.git" main
             echo "✅ Successfully synced ${{ matrix.repo }} to hub"
           else
             echo "  No changes detected for ${{ matrix.repo }}"
