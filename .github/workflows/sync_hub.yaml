@@ -100,35 +100,12 @@ jobs:
             git add "$REPO_DIR"
             git commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             # Push using the app token for authentication
-            git push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/hub-repo.git" main
+            git push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" main
             echo "✅ Successfully synced ${{ matrix.repo }} to hub"
           else
             echo "  No changes detected for ${{ matrix.repo }}"
           fi
 
-      - name: Sync ${{ matrix.repo }} to Hub Repository
-        env:
-          APP_TOKEN: ${{ steps.generate-token.outputs.token }}
+      - name: Debug
         run: |
-          cd hub
-          gpg --list-secret-keys
-          REPO_DIR="workflows/${{ matrix.repo }}"
-          
-          mkdir -p "$REPO_DIR"
-          
-          if [ -d "$REPO_DIR" ]; then
-            rm -rf "$REPO_DIR"
-          fi
-          
-          cp -r ../source-repo/* "$REPO_DIR/" 2>/dev/null || true
-          cp -r ../source-repo/.[^.]* "$REPO_DIR/" 2>/dev/null || true
-          
-          git add "$REPO_DIR"
-          
-          if ! git diff --staged --quiet; then
-            git commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git push origin main
-            echo "✅ Successfully synced ${{ matrix.repo }} to hub"
-          else
-            echo "ℹ️ No changes detected for ${{ matrix.repo }}"
-          fi
+          tree .
