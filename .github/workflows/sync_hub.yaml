@@ -86,6 +86,24 @@ jobs:
           git config --global user.signingkey "$GPG_KEY_ID"
           git config --global commit.gpgsign true
 
+      - name: ⛔️ DEBUG - Verify GPG and Git Identity
+        shell: bash
+        run: |
+          echo "--- Verifying GPG Key Identity ---"
+          # This command shows the email address embedded in the GPG key.
+          gpg --list-secret-keys --with-colons | grep 'uid'
+
+          echo ""
+          echo "--- Verifying Git Config Identity ---"
+          # These commands show the email address Git will use for the commit.
+          git config --global user.name
+          git config --global user.email
+          
+          echo ""
+          echo "--- Expected GitHub App Bot Email ---"
+          # This constructs the email GitHub requires for verification.
+          echo "${{ secrets.HUB_APP_ID }}+core-cloud-workflows-actions-sync[bot]@users.noreply.github.com"
+
       - name: Sync ${{ matrix.repo }} to Hub Repository
         shell: bash
         run: |
