@@ -31,6 +31,7 @@ jobs:
     permissions:
       contents: write
     strategy:
+      max-parallel: 1
       fail-fast: false
       matrix:
         repo: ${{ fromJSON(needs.generate-matrix.outputs.repos) }}
@@ -59,135 +60,32 @@ jobs:
           path: source-repo
           fetch-depth: 0
 
-      - name: Sync and Commit via API for ${{ matrix.repo }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
-          REPO_FULL_NAME: "UKHomeOffice/core-cloud-workflows-actions-sync"
+      - name: Sync files and push changes
         run: |
-          mkdir -p "./hub/workflows/${{ matrix.repo }}"
-          rsync -av --delete --exclude='.git' "./source-repo/" "./hub/workflows/${{ matrix.repo }}/"
-          echo "File sync complete."
-
-          cd ./hub
-
-          LATEST_COMMIT_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/ref/heads/sync-branch" --jq '.object.sha')
-          if [[ -z "$LATEST_COMMIT_SHA" ]]; then echo "Error: Could not get latest commit SHA."; exit 1; fi
-          echo "✅ Got latest commit SHA: $LATEST_COMMIT_SHA"
-
-          BASE_TREE_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/commits/${LATEST_COMMIT_SHA}" --jq '.tree.sha')
-          if [[ -z "$BASE_TREE_SHA" ]]; then echo "Error: Could not get base tree SHA."; exit 1; fi
-          echo "✅ Got base tree SHA: $BASE_TREE_SHA"
-
-          tree_data=()
-          while IFS= read -r -d '' line; do
-            status=${line:0:2}
-            path=${line:3}
-            mode="100644" # Assume standard file mode
-
-            if [[ -d "$path" ]]; then
-              continue
-            fi
-
-            if [[ "$status" == " D" ]]; then
-              # Handle deleted files
-              tree_data+=("{\"path\":\"${path}\",\"mode\":\"${mode}\",\"sha\":null}")
-            elif [[ "$status" == "??" || "$status" == " M" || "$status" == " A" ]]; then
-              # Handle new or modified files
-              blob_sha=$(gh api repos/${REPO_FULL_NAME}/git/blobs -f content="$(cat "$path")" -f encoding="utf-8" --jq '.sha')
-              tree_data+=("{\"path\":\"${path}\",\"mode\":\"${mode}\",\"type\":\"blob\",\"sha\":\"${blob_sha}\"}")
-            fi
-          done < <(git status --porcelain -z)
-
-          if [ ${#tree_data[@]} -eq 0 ]; then
-            echo "✅ No committable changes found after processing status. Exiting."
-            exit 0
-          fi
-          tree_json=$(IFS=,; echo "[${tree_data[*]}]")
-          NEW_TREE_SHA=$(gh api repos/${REPO_FULL_NAME}/git/trees -f "tree=${tree_json}" -f "base_tree=${BASE_TREE_SHA}" --jq '.sha')
-          if [[ -z "$NEW_TREE_SHA" ]]; then echo "Error: Failed to create new tree object."; exit 1; fi
-          echo "✅ Created new tree with SHA: $NEW_TREE_SHA"
-
-          COMMIT_MESSAGE="Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          NEW_COMMIT_SHA=$(gh api repos/${REPO_FULL_NAME}/git/commits -f message="$COMMIT_MESSAGE" -f tree="$NEW_TREE_SHA" -f "parents[]=$LATEST_COMMIT_SHA" --jq '.sha')
-          if [[ -z "$NEW_COMMIT_SHA" ]]; then echo "Error: Failed to create new commit object."; exit 1; fi
-          echo "✅ Created new commit with SHA: $NEW_COMMIT_SHA"
-
-          gh api repos/${REPO_FULL_NAME}/git/refs/heads/sync-branch -X PATCH -f sha="$NEW_COMMIT_SHA"
-          echo "🎉 Successfully pushed verified commit to sync-branch branch."
-
-      - name: Import GPG key and Configure Git
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          HUB_APP_SLUG: "workflows-actions-sync"
-          HUB_APP_ID: ${{ secrets.HUB_APP_ID }}
-        run: |
-          # Import the GPG key
-          GIT_USER_NAME="${HUB_APP_SLUG}[bot]"
-          GIT_USER_EMAIL="${HUB_APP_ID}+${HUB_APP_SLUG}[bot]@users.noreply.github.com"
-          echo "Configuring Git with user: $GIT_USER_NAME and email: $GIT_USER_EMAIL"
-
-          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes
-
-          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec:' | head -n 1 | cut -d: -f5)
-
-          if [ -z "$GPG_KEY_ID" ]; then
-            echo "Failed to find GPG key ID after import."
-            exit 1
-          fi
-
-          echo "Successfully imported GPG key with ID: $GPG_KEY_ID"
-
-          git config --global user.name "$GIT_USER_NAME"
-          git config --global user.email "$GIT_USER_EMAIL"
-          git config --global user.signingkey "$GPG_KEY_ID"
-          git config --global commit.gpgsign true
-
-      - name: ⛔️ DEBUG - Verify GPG and Git Identity
-        shell: bash
-        run: |
-          echo "--- Verifying GPG Key Identity ---"
-          # This command shows the email address embedded in the GPG key.
-          gpg --list-secret-keys --with-colons | grep 'uid'
-
-          echo ""
-          echo "--- Verifying Git Config Identity ---"
-          # These commands show the email address Git will use for the commit.
-          git config --global user.name
-          git config --global user.email
-          
-          echo ""
-          echo "--- Expected GitHub App Bot Email ---"
-          # This constructs the email GitHub requires for verification.
-          echo "${{ secrets.HUB_APP_ID }}+core-cloud-workflows-actions-sync[bot]@users.noreply.github.com"
-
-      - name: Sync ${{ matrix.repo }} to Hub Repository
-        shell: bash
-        run: |
-          # Define base paths
+          # 1. Prepare file paths and sync files
           HUB_DIR="./hub"
           SOURCE_DIR="./source-repo"
-          
-          # --- DEBUGGING STEP ---
-          echo "Current working directory:"
-          pwd
-          echo "Attempting to create directory: [${HUB_DIR}/workflows/${{ matrix.repo }}]"
-          # --- END DEBUGGING ---
+          DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
+          TARGET_BRANCH="sync-branch"
 
-          # Ensure the full destination path exists, constructing the path directly
-          mkdir -p "${HUB_DIR}/workflows/${{ matrix.repo }}"
+          mkdir -p "$DEST_DIR"
+          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "$DEST_DIR/"
+          echo "File sync complete."
 
-          # Use rsync to safely copy files, constructing the path directly
-          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "${HUB_DIR}/workflows/${{ matrix.repo }}/"
+          # 2. Configure Git committer identity
+          # The email can be the simple bot format now, as no verification is needed
+          git -C "$HUB_DIR" config user.name "your-app-name[bot]"
+          git -C "$HUB_DIR" config user.email "your-app-name[bot]@users.noreply.github.com"
+          git -C "$HUB_DIR" pull origin "$TARGET_BRANCH"
 
-          # Stage changes
+          # 3. Add, commit, and push if changes exist
           git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
-
-          # Check for changes and commit if necessary
+          
           if ! git -C "$HUB_DIR" diff --staged --quiet; then
+            echo "Changes detected. Committing and pushing..."
             git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" sync-branch
-            echo "✅ Successfully synced ${{ matrix.repo }} to hub"
+            git -C "$HUB_DIR" push
+            echo "✅ Successfully pushed changes."
           else
-            echo "  No changes detected for ${{ matrix.repo }}"
+            echo "  No changes detected. Nothing to push."
           fi
