@@ -62,10 +62,14 @@ jobs:
       - name: Import GPG key and Configure Git
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GIT_USER_NAME: "workflows-actions-sync[bot]"
-          GIT_USER_EMAIL: "${{ secrets.HUB_APP_ID }}+workflows-actions-sync[bot]@users.noreply.github.com"
+          HUB_APP_SLUG: "workflows-actions-sync"
+          HUB_APP_ID: ${{ secrets.HUB_APP_ID }}
         run: |
           # Import the GPG key
+          GIT_USER_NAME="${HUB_APP_SLUG}[bot]"
+          GIT_USER_EMAIL="${HUB_APP_ID}+${HUB_APP_SLUG}[bot]@users.noreply.github.com"
+          echo "Configuring Git with user: $GIT_USER_NAME and email: $GIT_USER_EMAIL"
+
           echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes
 
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec:' | head -n 1 | cut -d: -f5)
@@ -87,12 +91,13 @@ jobs:
           cd hub
           REPO_DIR="workflows/${{ matrix.repo }}"
 
+          mkdir -p "$REPO_DIR"
+
           # Use rsync to copy files without the .git directory
           rsync -av --delete --exclude='.git' ../source-repo/ "$REPO_DIR/"
 
-          git add "$REPO_DIR"
-
           if ! git diff --staged --quiet; then
+            git add "$REPO_DIR"
             git commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             # Push using the app token for authentication
             git push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/hub-repo.git" main
@@ -109,11 +114,11 @@ jobs:
           gpg --list-secret-keys
           REPO_DIR="workflows/${{ matrix.repo }}"
           
+          mkdir -p "$REPO_DIR"
+          
           if [ -d "$REPO_DIR" ]; then
             rm -rf "$REPO_DIR"
           fi
-          
-          mkdir -p "$REPO_DIR"
           
           cp -r ../source-repo/* "$REPO_DIR/" 2>/dev/null || true
           cp -r ../source-repo/.[^.]* "$REPO_DIR/" 2>/dev/null || true
