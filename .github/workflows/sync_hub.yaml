@@ -87,34 +87,32 @@ jobs:
           git config --global commit.gpgsign true
 
       - name: Sync ${{ matrix.repo }} to Hub Repository
+        shell: bash
         run: |
+          # Define base paths
           HUB_DIR="./hub"
           SOURCE_DIR="./source-repo"
-          DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
+          
+          # --- DEBUGGING STEP ---
+          echo "Current working directory:"
+          pwd
+          echo "Attempting to create directory: [${HUB_DIR}/workflows/${{ matrix.repo }}]"
+          # --- END DEBUGGING ---
 
-          echo "Workspace content:"
-          ls -la
-          echo "Hub content:"
-          ls -la "$HUB_DIR"
-          echo "Attempting to create directory: [$DEST_DIR]"
-          mkdir -p "$REPO_DIR"
+          # Ensure the full destination path exists, constructing the path directly
+          mkdir -p "${HUB_DIR}/workflows/${{ matrix.repo }}"
 
-          # Use rsync to copy files without the .git directory
-          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "$DEST_DIR/"
+          # Use rsync to safely copy files, constructing the path directly
+          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "${HUB_DIR}/workflows/${{ matrix.repo }}/"
 
+          # Stage changes
           git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
 
+          # Check for changes and commit if necessary
           if ! git -C "$HUB_DIR" diff --staged --quiet; then
-            echo "Changes detected. Committing and pushing..."
             git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            
-            # Push the signed commit
-            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/<YOUR_ORG>/hub-repo.git" main
+            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" main
             echo "✅ Successfully synced ${{ matrix.repo }} to hub"
           else
             echo "  No changes detected for ${{ matrix.repo }}"
           fi
-
-      - name: Debug
-        run: |
-          tree .
