@@ -3,7 +3,7 @@ name: Sync Public Workflows to Hub
 on:
   push:
     branches:
-      - main
+      - sync-branch
 
   workflow_dispatch:
   #schedule:
@@ -71,7 +71,7 @@ jobs:
 
           cd ./hub
 
-          LATEST_COMMIT_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/ref/heads/main" --jq '.object.sha')
+          LATEST_COMMIT_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/ref/heads/sync-branch" --jq '.object.sha')
           if [[ -z "$LATEST_COMMIT_SHA" ]]; then echo "Error: Could not get latest commit SHA."; exit 1; fi
           echo "✅ Got latest commit SHA: $LATEST_COMMIT_SHA"
 
@@ -113,8 +113,8 @@ jobs:
           if [[ -z "$NEW_COMMIT_SHA" ]]; then echo "Error: Failed to create new commit object."; exit 1; fi
           echo "✅ Created new commit with SHA: $NEW_COMMIT_SHA"
 
-          gh api repos/${REPO_FULL_NAME}/git/refs/heads/main -X PATCH -f sha="$NEW_COMMIT_SHA"
-          echo "🎉 Successfully pushed verified commit to main branch."
+          gh api repos/${REPO_FULL_NAME}/git/refs/heads/sync-branch -X PATCH -f sha="$NEW_COMMIT_SHA"
+          echo "🎉 Successfully pushed verified commit to sync-branch branch."
 
       - name: Import GPG key and Configure Git
         env:
@@ -186,7 +186,7 @@ jobs:
           # Check for changes and commit if necessary
           if ! git -C "$HUB_DIR" diff --staged --quiet; then
             git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" main
+            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" sync-branch
             echo "✅ Successfully synced ${{ matrix.repo }} to hub"
           else
             echo "  No changes detected for ${{ matrix.repo }}"
