@@ -1,9 +1,12 @@
-name: Sync Public Workflows to Hub
+name: Reusable workflow for GHES sync.
 
 on:
-  push:
-    branches:
-      - sync-branch
+  workflow_call:
+    inputs:
+      ghes-instances:
+        description: 'A multi-line list of GHES instances to sync this workflow with'
+        required: true
+        type: string
 
   workflow_dispatch:
   #schedule:
@@ -14,7 +17,7 @@ jobs:
   generate-matrix:
     runs-on: ubuntu-latest
     outputs:
-      repos: ${{ steps.set-matrix.outputs.repos }}
+      ghes: ${{ steps.set-matrix.outputs.repos }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,8 +25,8 @@ jobs:
       - name: Generate matrix from workflow_repos.txt
         id: set-matrix
         run: |
-          repos_json=$(jq -c -R -s 'split("\n") | map(select(length > 0))' workflow_repos.txt)
-          echo "repos=${repos_json}" >> $GITHUB_OUTPUT
+          ghes_json=$(echo "${{ inputs.ghes-instances }}" | jq -c -R -s 'split("\n") | map(select(length > 0))')
+          echo "ghes=${ghes_json}" >> $GITHUB_OUTPUT
 
   sync-to-hub:
     needs: generate-matrix
@@ -31,10 +34,8 @@ jobs:
     permissions:
       contents: write
     strategy:
-      max-parallel: 1
-      fail-fast: false
       matrix:
-        repo: ${{ fromJSON(needs.generate-matrix.outputs.repos) }}
+        repo: ${{ fromJSON(needs.generate-matrix.outputs.ghes) }}
     steps:
       - name: Generate token from GitHub App
         id: generate-token
