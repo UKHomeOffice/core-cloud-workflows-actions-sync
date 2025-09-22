@@ -27,66 +27,65 @@ jobs:
         run: |
           ghes_json=$(echo "${{ inputs.ghes-instances }}" | jq -c -R -s 'split("\n") | map(select(length > 0))')
           echo "ghes=${ghes_json}" >> $GITHUB_OUTPUT
+  # sync-to-hub:
+  #   needs: generate-matrix
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: write
+  #   strategy:
+  #     matrix:
+  #       repo: ${{ fromJSON(needs.generate-matrix.outputs.ghes) }}
+  #   steps:
+  #     - name: Generate token from GitHub App
+  #       id: generate-token
+  #       uses: actions/create-github-app-token@v1
+  #       with:
+  #         app-id: ${{ secrets.HUB_APP_ID }}
+  #         private-key: ${{ secrets.HUB_APP_PRIVATE_KEY }}
+  #         owner: UKHomeOffice
 
-  sync-to-hub:
-    needs: generate-matrix
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        repo: ${{ fromJSON(needs.generate-matrix.outputs.ghes) }}
-    steps:
-      - name: Generate token from GitHub App
-        id: generate-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.HUB_APP_ID }}
-          private-key: ${{ secrets.HUB_APP_PRIVATE_KEY }}
-          owner: UKHomeOffice
+  #     - name: Checkout hub repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         repository: UKHomeOffice/core-cloud-workflows-actions-sync
+  #         token: ${{ steps.generate-token.outputs.token }}
+  #         path: hub
+  #         fetch-depth: 0
 
-      - name: Checkout hub repository
-        uses: actions/checkout@v4
-        with:
-          repository: UKHomeOffice/core-cloud-workflows-actions-sync
-          token: ${{ steps.generate-token.outputs.token }}
-          path: hub
-          fetch-depth: 0
+  #     - name: Checkout source repository ${{ matrix.repo }}
+  #       uses: actions/checkout@v4
+  #       with:
+  #         repository: UKHomeOffice/${{ matrix.repo }}
+  #         token: ${{ steps.generate-token.outputs.token }}
+  #         path: source-repo
+  #         fetch-depth: 0
 
-      - name: Checkout source repository ${{ matrix.repo }}
-        uses: actions/checkout@v4
-        with:
-          repository: UKHomeOffice/${{ matrix.repo }}
-          token: ${{ steps.generate-token.outputs.token }}
-          path: source-repo
-          fetch-depth: 0
+  #     - name: Sync files and push changes
+  #       run: |
+  #         # 1. Prepare file paths and sync files
+  #         HUB_DIR="./hub"
+  #         SOURCE_DIR="./source-repo"
+  #         DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
+  #         TARGET_BRANCH="sync-branch"
 
-      - name: Sync files and push changes
-        run: |
-          # 1. Prepare file paths and sync files
-          HUB_DIR="./hub"
-          SOURCE_DIR="./source-repo"
-          DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
-          TARGET_BRANCH="sync-branch"
+  #         mkdir -p "$DEST_DIR"
+  #         rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "$DEST_DIR/"
+  #         echo "File sync complete."
 
-          mkdir -p "$DEST_DIR"
-          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "$DEST_DIR/"
-          echo "File sync complete."
+  #         # 2. Configure Git committer identity
+  #         # The email can be the simple bot format now, as no verification is needed
+  #         git -C "$HUB_DIR" config user.name "your-app-name[bot]"
+  #         git -C "$HUB_DIR" config user.email "your-app-name[bot]@users.noreply.github.com"
+  #         git -C "$HUB_DIR" pull origin "$TARGET_BRANCH"
 
-          # 2. Configure Git committer identity
-          # The email can be the simple bot format now, as no verification is needed
-          git -C "$HUB_DIR" config user.name "your-app-name[bot]"
-          git -C "$HUB_DIR" config user.email "your-app-name[bot]@users.noreply.github.com"
-          git -C "$HUB_DIR" pull origin "$TARGET_BRANCH"
-
-          # 3. Add, commit, and push if changes exist
-          git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
+  #         # 3. Add, commit, and push if changes exist
+  #         git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
           
-          if ! git -C "$HUB_DIR" diff --staged --quiet; then
-            echo "Changes detected. Committing and pushing..."
-            git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git -C "$HUB_DIR" push
-            echo "✅ Successfully pushed changes."
-          else
-            echo "  No changes detected. Nothing to push."
-          fi
+  #         if ! git -C "$HUB_DIR" diff --staged --quiet; then
+  #           echo "Changes detected. Committing and pushing..."
+  #           git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  #           git -C "$HUB_DIR" push
+  #           echo "✅ Successfully pushed changes."
+  #         else
+  #           echo "  No changes detected. Nothing to push."
+  #         fi
