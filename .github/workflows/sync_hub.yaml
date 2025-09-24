@@ -8,84 +8,81 @@ on:
         required: true
         type: string
 
-  workflow_dispatch:
-  #schedule:
-    # Run hourly
-    #- cron: '0 * * * *'
-
 jobs:
   generate-matrix:
     runs-on: ubuntu-latest
     outputs:
-      ghes: ${{ steps.set-matrix.outputs.repos }}
+      ghes_hostname: ${{ steps.set-matrix.outputs.ghes_hostname }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Generate matrix from workflow_repos.txt
+      - name: Generate matrix from the ghes-instances input
         id: set-matrix
         run: |
           ghes_json=$(echo "${{ inputs.ghes-instances }}" | jq -c -R -s 'split("\n") | map(select(length > 0))')
-          echo "ghes=${ghes_json}" >> $GITHUB_OUTPUT
-  # sync-to-hub:
-  #   needs: generate-matrix
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     contents: write
-  #   strategy:
-  #     matrix:
-  #       repo: ${{ fromJSON(needs.generate-matrix.outputs.ghes) }}
-  #   steps:
-  #     - name: Generate token from GitHub App
-  #       id: generate-token
-  #       uses: actions/create-github-app-token@v1
-  #       with:
-  #         app-id: ${{ secrets.HUB_APP_ID }}
-  #         private-key: ${{ secrets.HUB_APP_PRIVATE_KEY }}
-  #         owner: UKHomeOffice
+          echo "ghes_hostname=${ghes_json}" >> $GITHUB_OUTPUT
 
-  #     - name: Checkout hub repository
-  #       uses: actions/checkout@v4
-  #       with:
-  #         repository: UKHomeOffice/core-cloud-workflows-actions-sync
-  #         token: ${{ steps.generate-token.outputs.token }}
-  #         path: hub
-  #         fetch-depth: 0
+  sync-to-ghes:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        ghes: ${{ fromJSON(needs.generate-matrix.outputs.ghes_hostname) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-  #     - name: Checkout source repository ${{ matrix.repo }}
-  #       uses: actions/checkout@v4
-  #       with:
-  #         repository: UKHomeOffice/${{ matrix.repo }}
-  #         token: ${{ steps.generate-token.outputs.token }}
-  #         path: source-repo
-  #         fetch-depth: 0
+      - name: Parse GHES Host
+        id: parse-host
+        run: |
+          hostname=$(echo "${{ matrix.ghes }}" | sed -E 's#^https?://([^/]+)/?#\1#')
+          echo "hostname=$hostname" >> $GITHUB_OUTPUT
 
-  #     - name: Sync files and push changes
-  #       run: |
-  #         # 1. Prepare file paths and sync files
-  #         HUB_DIR="./hub"
-  #         SOURCE_DIR="./source-repo"
-  #         DEST_DIR="${HUB_DIR}/workflows/${{ matrix.repo }}"
-  #         TARGET_BRANCH="sync-branch"
+      - name: Generate GitHub App Token for GHES
+        id: get_ghes_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.GHES_APP_ID }}
+          private-key: ${{ secrets.GHES_PRIVATE_KEY }}
+          github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}'
+          owner: 'ho-actions-mirror'
 
-  #         mkdir -p "$DEST_DIR"
-  #         rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "$DEST_DIR/"
-  #         echo "File sync complete."
+      - name: Create GHES repo if it doesn't exist
+        env:
+          GH_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
+          GH_HOST: ${{ steps.parse-host.outputs.hostname }}
+          REPO_PATH: ${{ github.repository }}
+        run: |
+          # We check if the repo exists. The `gh repo view` command will fail (exit with a non-zero status) if it doesn't.
+          if ! gh repo view "${REPO_PATH}"; then
+            echo "Repository ${{ env.REPO_PATH }} does not exist on ${{ env.GH_HOST }}. Creating it now..."
+            gh repo create "${REPO_PATH}" --public
+            echo "Repository created successfully."
+          else
+            echo "Repository ${{ env.REPO_PATH }} already exists on ${{ env.GH_HOST }}."
+          fi
 
-  #         # 2. Configure Git committer identity
-  #         # The email can be the simple bot format now, as no verification is needed
-  #         git -C "$HUB_DIR" config user.name "your-app-name[bot]"
-  #         git -C "$HUB_DIR" config user.email "your-app-name[bot]@users.noreply.github.com"
-  #         git -C "$HUB_DIR" pull origin "$TARGET_BRANCH"
-
-  #         # 3. Add, commit, and push if changes exist
-  #         git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
+      - name: Set up GHES remote and push
+        env:
+          GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
+          GHES_HOST: ${{ matrix.ghes }}
+          REPO_PATH: ${{ github.repository }}
+        run: |
+          git config --global user.name "GitHub Actions Sync"
+          git config --global user.email "actions-sync@homeoffice.gov.uk"
           
-  #         if ! git -C "$HUB_DIR" diff --staged --quiet; then
-  #           echo "Changes detected. Committing and pushing..."
-  #           git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-  #           git -C "$HUB_DIR" push
-  #           echo "✅ Successfully pushed changes."
-  #         else
-  #           echo "  No changes detected. Nothing to push."
-  #         fi
+          full_ghes_url="${GHES_HOST}/${REPO_PATH}.git"
+          echo "Constructed full GHES URL: ${full_ghes_url}"
+
+          git remote add ghes "https://x-access-token:${GHES_TOKEN}@${full_ghes_url#https://}"
+          
+          echo "GHES remote added for ${full_ghes_url}"
+          echo "Pushing to GHES..."
+
+          git push --all ghes --force
+          git push --tags ghes --force
+          
+          echo "Sync to ${full_ghes_url} complete."
