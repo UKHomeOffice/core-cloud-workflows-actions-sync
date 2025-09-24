@@ -41,6 +41,11 @@ jobs:
           hostname=$(echo "${{ matrix.ghes }}" | sed -E 's#^https?://([^/]+)/?#\1#')
           echo "hostname=$hostname" >> $GITHUB_OUTPUT
 
+      - name: Debug
+        id: debug
+        run: |
+          curl -v https://github.ci.core.homeoffice.gov.uk
+
       - name: Generate GitHub App Token for GHES
         id: get_ghes_token
         uses: actions/create-github-app-token@v2
