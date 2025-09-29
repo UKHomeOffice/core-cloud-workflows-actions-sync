@@ -10,7 +10,7 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: core-cloud-live
+    runs-on: cc-ghec-actions-runner 
     outputs:
       ghes_hostname: ${{ steps.set-matrix.outputs.ghes_hostname }}
     steps:
@@ -22,7 +22,7 @@ jobs:
 
   sync-to-ghes:
     needs: generate-matrix
-    runs-on: core-cloud-live
+    runs-on: cc-ghec-actions-runner
     strategy:
       max-parallel: 1
       matrix:
