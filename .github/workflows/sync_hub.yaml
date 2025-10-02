@@ -7,12 +7,17 @@ on:
         description: 'A multi-line list of GHES instances to sync this workflow with'
         required: true
         type: string
+      ghes-owner:
+        description: 'a multi-line list of organisations where the workflows are being synced to. Make sure they are in the same order as your GHES instances'
+        required: true
+        type: string
 
 jobs:
   generate-matrix:
     runs-on: cc-ghec-actions-runner 
     outputs:
       ghes_hostname: ${{ steps.set-matrix.outputs.ghes_hostname }}
+      ghes_owner: ${{ steps.set-matrix.outputs.ghes_owner }}
     steps:
       - name: Generate matrix from the ghes-instances input
         id: set-matrix
@@ -44,7 +49,7 @@ jobs:
       - name: Debug
         id: debug
         run: |
-          openssl s_client -connect github.ci.core.homeoffice.gov.uk:443
+          openssl s_client -connect github.cc-test-ops-tooling.np.core.homeoffice.gov.uk:443
 
       - name: Generate GitHub App Token for GHES
         id: get_ghes_token
@@ -53,7 +58,7 @@ jobs:
           app-id: ${{ secrets.GHES_APP_ID }}
           private-key: ${{ secrets.GHES_PRIVATE_KEY }}
           github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}'
-          owner: 'ho-actions-mirror'
+          owner: '${{ needs.generate-matrix.outputs.ghes_owner }}'
 
       - name: Create GHES repo if it doesn't exist
         env:
