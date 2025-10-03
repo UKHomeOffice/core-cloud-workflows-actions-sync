@@ -11,19 +11,38 @@ on:
         description: 'a multi-line list of organisations where the workflows are being synced to. Make sure they are in the same order as your GHES instances'
         required: true
         type: string
+    secrets:
+      APP_ID:
+        required: true
+      PRIVATE_KEY:
+        required: true
 
 jobs:
   generate-matrix:
     runs-on: cc-ghec-actions-runner 
     outputs:
-      ghes_hostname: ${{ steps.set-matrix.outputs.ghes_hostname }}
-      ghes_owner: ${{ steps.set-matrix.outputs.ghes_owner }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Generate matrix from the ghes-instances input
         id: set-matrix
+        env:
+          INSTANCES: ${{ inputs.ghes-instances }}
+          OWNERS: ${{ inputs.ghes-owner }}
         run: |
-          ghes_json=$(echo "${{ inputs.ghes-instances }}" | jq -c -R -s 'split("\n") | map(select(length > 0))')
-          echo "ghes_hostname=${ghes_json}" >> $GITHUB_OUTPUT
+          matrix_json=$(jq -cn --arg instances "$INSTANCES" --arg owners "$OWNERS" '
+            [
+              ($instances | split("\n")) as $i |
+              ($owners | split("\n")) as $o |
+              range($i | length) |
+              # Ensure we only process lines that have both an instance and an owner
+              select($i[.] != "" and $o[.] != "") |
+              {
+                "url": $i[.],
+                "owner": $o[.]
+              }
+            ]
+          ')
+          echo "matrix=${matrix_json}" >> $GITHUB_OUTPUT
 
   sync-to-ghes:
     needs: generate-matrix
@@ -31,7 +50,7 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        ghes: ${{ fromJSON(needs.generate-matrix.outputs.ghes_hostname) }}
+        instance: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,22 +62,53 @@ jobs:
       - name: Parse GHES Host
         id: parse-host
         run: |
-          hostname=$(echo "${{ matrix.ghes }}" | sed -E 's#^https?://([^/]+)/?#\1#')
+          hostname=$(echo "${{ matrix.instance.url }}" | sed -E 's#^https?://([^/]+)/?#\1#')
           echo "hostname=$hostname" >> $GITHUB_OUTPUT
 
-      - name: Debug
-        id: debug
+      - name: 🧪 Verify Secrets Format
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
         run: |
-          openssl s_client -connect github.cc-test-ops-tooling.np.core.homeoffice.gov.uk:443
+          echo "### Verifying App ID ###"
+          if [ -z "$APP_ID" ]; then
+            echo "❌ ERROR: App ID secret is empty or not available."
+          elif [[ "$APP_ID" =~ ^[0-9]+$ ]]; then
+            echo "✅ OK: App ID is present and appears to be a valid number."
+          else
+            echo "❌ ERROR: App ID contains non-numeric characters."
+          fi
+
+          echo ""
+          echo "### Verifying Private Key ###"
+          if [ -z "$PRIVATE_KEY" ]; then
+            echo "❌ ERROR: Private Key secret is empty or not available."
+          else
+            echo "✅ OK: Private Key is present."
+            # Check for the required header and footer
+            if ! echo "$PRIVATE_KEY" | grep -q "BEGIN RSA PRIVATE KEY"; then
+              echo "❌ ERROR: Private key is MISSING the 'BEGIN RSA PRIVATE KEY' header."
+            else
+              echo "✅ OK: Found 'BEGIN' header."
+            fi
+            if ! echo "$PRIVATE_KEY" | grep -q "END RSA PRIVATE KEY"; then
+              echo "❌ ERROR: Private key is MISSING the 'END RSA PRIVATE KEY' footer."
+            else
+              echo "✅ OK: Found 'END' footer."
+            fi
+            # Check the line count
+            line_count=$(echo "$PRIVATE_KEY" | wc -l)
+            echo "   - Key has $line_count lines. (A single line is a common error)."
+          fi
 
       - name: Generate GitHub App Token for GHES
         id: get_ghes_token
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.GHES_APP_ID }}
-          private-key: ${{ secrets.GHES_PRIVATE_KEY }}
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
           github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}'
-          owner: '${{ needs.generate-matrix.outputs.ghes_owner }}'
+          owner: '${{ matrix.instance.owner }}'
 
       - name: Create GHES repo if it doesn't exist
         env:
