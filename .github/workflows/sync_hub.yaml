@@ -28,8 +28,8 @@ jobs:
             [
               ($instances | split("\n")) as $i |
               range($i | length) |
-              # Ensure we only process lines that have an instance
-              select($i[.] != "" and $o[.] != "") |
+              # Only process non-empty lines
+              select($i[.] != "") |
               {
                 "url": $i[.],
               }
@@ -58,42 +58,6 @@ jobs:
           hostname=$(echo "${{ matrix.instance.url }}" | sed -E 's#^https?://([^/]+)/?#\1#')
           echo "hostname=$hostname" >> $GITHUB_OUTPUT
 
-      - name: 🧪 Verify Secrets Format
-        env:
-          APP_ID: ${{ secrets.APP_ID }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: |
-          echo "### Verifying App ID ###"
-          if [ -z "$APP_ID" ]; then
-            echo "❌ ERROR: App ID secret is empty or not available."
-          elif [[ "$APP_ID" =~ ^[0-9]+$ ]]; then
-            echo "✅ OK: App ID is present and appears to be a valid number."
-          else
-            echo "❌ ERROR: App ID contains non-numeric characters."
-          fi
-
-          echo ""
-          echo "### Verifying Private Key ###"
-          if [ -z "$PRIVATE_KEY" ]; then
-            echo "❌ ERROR: Private Key secret is empty or not available."
-          else
-            echo "✅ OK: Private Key is present."
-            # Check for the required header and footer
-            if ! echo "$PRIVATE_KEY" | grep -q "BEGIN RSA PRIVATE KEY"; then
-              echo "❌ ERROR: Private key is MISSING the 'BEGIN RSA PRIVATE KEY' header."
-            else
-              echo "✅ OK: Found 'BEGIN' header."
-            fi
-            if ! echo "$PRIVATE_KEY" | grep -q "END RSA PRIVATE KEY"; then
-              echo "❌ ERROR: Private key is MISSING the 'END RSA PRIVATE KEY' footer."
-            else
-              echo "✅ OK: Found 'END' footer."
-            fi
-            # Check the line count
-            line_count=$(echo "$PRIVATE_KEY" | wc -l)
-            echo "   - Key has $line_count lines. (A single line is a common error)."
-          fi
-
       - name: Generate GitHub App Token for GHES
         id: get_ghes_token
         uses: actions/create-github-app-token@v2
@@ -121,7 +85,7 @@ jobs:
       - name: Set up GHES remote and push
         env:
           GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
-          GHES_HOST: ${{ matrix.ghes }}
+          GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
           REPO_PATH: ${{ github.repository }}
         run: |
           git config --global user.name "GitHub Actions Sync"
