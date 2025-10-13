@@ -7,10 +7,6 @@ on:
         description: 'A multi-line list of GHES instances to sync this workflow with'
         required: true
         type: string
-      ghes-owner:
-        description: 'a multi-line list of organisations where the workflows are being synced to. Make sure they are in the same order as your GHES instances'
-        required: true
-        type: string
     secrets:
       APP_ID:
         required: true
@@ -27,18 +23,15 @@ jobs:
         id: set-matrix
         env:
           INSTANCES: ${{ inputs.ghes-instances }}
-          OWNERS: ${{ inputs.ghes-owner }}
         run: |
-          matrix_json=$(jq -cn --arg instances "$INSTANCES" --arg owners "$OWNERS" '
+          matrix_json=$(jq -cn --arg instances "$INSTANCES" '
             [
               ($instances | split("\n")) as $i |
-              ($owners | split("\n")) as $o |
               range($i | length) |
-              # Ensure we only process lines that have both an instance and an owner
+              # Ensure we only process lines that have an instance
               select($i[.] != "" and $o[.] != "") |
               {
                 "url": $i[.],
-                "owner": $o[.]
               }
             ]
           ')
@@ -108,7 +101,7 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
           github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}'
-          owner: '${{ matrix.instance.owner }}'
+          installation-id: 12
 
       - name: Create GHES repo if it doesn't exist
         env:
