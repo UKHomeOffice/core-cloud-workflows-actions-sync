@@ -65,7 +65,7 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
           github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}'
-          repositories: 'core-cloud-workflow-checkov-sast-scan'
+          repositories: 'th-test-page'
           owner: 'home-office-sandbox'
 
       - name: Create GHES repo if it doesn't exist
