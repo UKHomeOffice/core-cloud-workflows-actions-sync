@@ -65,7 +65,7 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
           github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}/api/v3'
-          repositories: 'th-test-page'
+          #repositories: 'th-test-page'
           owner: 'home-office-sandbox'
 
       - name: Create GHES repo if it doesn't exist
@@ -73,14 +73,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
           GITHUB_HOST: ${{ steps.parse-host.outputs.hostname }}
-          REPO_PATH: ${{ github.repository }}
+          REPO: ${{ github.event.repository.name }}
           OWNER: 'home-office-sandbox'
         run: |
-          curl -L \
+          echo $GITHUB_TOKEN && echo $GITHUB_HOST && echo $OWNER && curl -v -L \
+            -X POST \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://$GITHUB_HOST/api/v3/orgs/$OWNER/repos
+            https://${GITHUB_HOST}/api/v3/orgs/${OWNER}/repos \
+            -d '{"name":"$REPO","description":"A reusable workflow of $REPO synced from the HO github.com", \
+            "visibility":"public","has_projects":false,"has_issues":false, \
+            "homepage":"https://github.com/${OWNER}/$REPO"}'
 
       - name: Set up GHES remote and push
         env:
