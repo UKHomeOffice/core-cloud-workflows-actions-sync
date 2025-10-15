@@ -69,19 +69,13 @@ jobs:
           owner: 'home-office-sandbox'
 
       - name: Create GHES repo if it doesn't exist
+        id: create_repos
         env:
           GH_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
           GH_HOST: ${{ steps.parse-host.outputs.hostname }}
           REPO_PATH: ${{ github.repository }}
         run: |
-          # We check if the repo exists. The `gh repo view` command will fail (exit with a non-zero status) if it doesn't.
-          if ! gh repo view "${REPO_PATH}"; then
-            echo "Repository ${{ env.REPO_PATH }} does not exist on ${{ env.GH_HOST }}. Creating it now..."
-            gh repo create "${REPO_PATH}" --public
-            echo "Repository created successfully."
-          else
-            echo "Repository ${{ env.REPO_PATH }} already exists on ${{ env.GH_HOST }}."
-          fi
+          gh --version
 
       - name: Set up GHES remote and push
         env:
