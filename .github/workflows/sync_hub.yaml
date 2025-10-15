@@ -71,11 +71,16 @@ jobs:
       - name: Create GHES repo if it doesn't exist
         id: create_repos
         env:
-          GH_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
-          GH_HOST: ${{ steps.parse-host.outputs.hostname }}
+          GITHUB_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
+          GITHUB_HOST: ${{ steps.parse-host.outputs.hostname }}
           REPO_PATH: ${{ github.repository }}
+          OWNER: 'home-office-sandbox'
         run: |
-          gh --version
+          curl -L \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://$GITHUB_HOST/api/v3/orgs/$OWNER/repos
 
       - name: Set up GHES remote and push
         env:
