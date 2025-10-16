@@ -71,37 +71,33 @@ jobs:
       - name: Create GHES repo if it doesn't exist
         id: create_repos
         env:
-          GITHUB_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
-          GITHUB_HOST: ${{ steps.parse-host.outputs.hostname }}
+          GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
+          GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
           REPO: ${{ github.event.repository.name }}
-          OWNER: 'home-office-sandbox'
+          GHES_OWNER: 'home-office-sandbox'
         run: |
-          echo $GITHUB_TOKEN && echo $GITHUB_HOST && echo $OWNER && curl -v -L \
+          curl -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Authorization: Bearer ${GHES_TOKEN}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://${GITHUB_HOST}/api/v3/orgs/${OWNER}/repos \
-            -d "{\"name\":\"${REPO}\",\"description\":\"A reusable workflow of ${REPO} synced from the HO github.com\",\"visibility\":\"public\",\"has_projects\":false,\"has_issues\":false,\"homepage\":\"https://github.com/${OWNER}/${REPO}\"}"
+            https://${GHES_HOST}/api/v3/orgs/${GHES_OWNER}/repos \
+            -d "{\"name\":\"${REPO}\",\"description\":\"A reusable workflow of ${REPO} synced from the HO github.com\",\"visibility\":\"public\",\"has_projects\":false,\"has_issues\":false,\"homepage\":\"https://github.com/${GHES_OWNER}/${REPO}\"}"
 
       - name: Set up GHES remote and push
         env:
           GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
           GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
-          REPO_PATH: ${{ github.repository }}
+          REPO: ${{ github.event.repository.name }}
+          GHES_OWNER: 'home-office-sandbox'
         run: |
           git config --global user.name "GitHub Actions Sync"
           git config --global user.email "actions-sync@homeoffice.gov.uk"
-          
-          full_ghes_url="${GHES_HOST}/${REPO_PATH}.git"
-          echo "Constructed full GHES URL: ${full_ghes_url}"
-
-          git remote add ghes "https://x-access-token:${GHES_TOKEN}@${full_ghes_url#https://}"
-          
-          echo "GHES remote added for ${full_ghes_url}"
+          git remote add ghes "https://x-access-token:${GHES_TOKEN}@${GHES_HOST}/${GHES_OWNER}/${REPO}.git" 
+          git remote -v
           echo "Pushing to GHES..."
 
-          git push --all ghes --force
-          git push --tags ghes --force
+          git push ghes --all --force
+          git push ghes --tags --force
           
           echo "Sync to ${full_ghes_url} complete."
