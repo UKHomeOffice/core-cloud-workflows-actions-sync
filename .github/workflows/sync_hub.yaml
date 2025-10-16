@@ -58,11 +58,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Debug
-        id: debug
-        run: |
-          env
-
       - name: Parse GHES Host
         id: parse-host
         run: |
