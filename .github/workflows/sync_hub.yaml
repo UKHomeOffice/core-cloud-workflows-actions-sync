@@ -82,9 +82,7 @@ jobs:
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://${GITHUB_HOST}/api/v3/orgs/${OWNER}/repos \
-            -d '{"name":"$REPO","description":"A reusable workflow of $REPO synced from the HO github.com", \
-            "visibility":"public","has_projects":false,"has_issues":false, \
-            "homepage":"https://github.com/${OWNER}/$REPO"}'
+            -d "{\"name\":\"${REPO}\",\"description\":\"A reusable workflow of ${REPO} synced from the HO github.com\",\"visibility\":\"public\",\"has_projects\":false,\"has_issues\":false,\"homepage\":\"https://github.com/${OWNER}/${REPO}\"}"
 
       - name: Set up GHES remote and push
         env:
