@@ -4,7 +4,11 @@ on:
   workflow_call:
     inputs:
       ghes-instances:
-        description: 'A multi-line list of GHES instances to sync this workflow with'
+        description: 'A multi-line list of GHES instances to sync the repositories with'
+        required: true
+        type: string
+      ghes-owners:
+        description: 'A multi-line list of the GHES organisations where the repos are going. One per GHES instance.'
         required: true
         type: string
     secrets:
@@ -19,19 +23,21 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Generate matrix from the ghes-instances input
+      - name: Generate matrix from instances and owners
         id: set-matrix
         env:
           INSTANCES: ${{ inputs.ghes-instances }}
+          OWNERS: ${{ inputs.ghes-owners }}
         run: |
-          matrix_json=$(jq -cn --arg instances "$INSTANCES" '
+          matrix_json=$(jq -cn --arg instances "$INSTANCES" --arg owners "$OWNERS" '
             [
               ($instances | split("\n")) as $i |
+              ($owners | split("\n")) as $o |
               range($i | length) |
-              # Only process non-empty lines
               select($i[.] != "") |
               {
                 "url": $i[.],
+                "owner": $o[.]
               }
             ]
           ')
@@ -52,11 +58,20 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Debug
+        id: debug
+        run: |
+          env
+
       - name: Parse GHES Host
         id: parse-host
         run: |
           hostname=$(echo "${{ matrix.instance.url }}" | sed -E 's#^https?://([^/]+)/?#\1#')
+          echo $hostname
           echo "hostname=$hostname" >> $GITHUB_OUTPUT
+          owners=$(echo "${{ matrix.instance.owner }}")
+          echo $owners
+          echo "owners=$owners" >> $GITHUB_OUTPUT
 
       - name: Generate GitHub App Token for GHES
         id: get_ghes_token
@@ -65,8 +80,7 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
           github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}/api/v3'
-          #repositories: 'th-test-page'
-          owner: 'home-office-sandbox'
+          owner: ${{ steps.parse-host.outputs.owners }}
 
       - name: Create GHES repo if it doesn't exist
         id: create_repos
@@ -74,7 +88,7 @@ jobs:
           GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
           GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
           REPO: ${{ github.event.repository.name }}
-          GHES_OWNER: 'home-office-sandbox'
+          GHES_OWNER: ${{ steps.parse-host.outputs.owners }}
         run: |
           curl -L \
             -X POST \
@@ -89,7 +103,7 @@ jobs:
           GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
           GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
           REPO: ${{ github.event.repository.name }}
-          GHES_OWNER: 'home-office-sandbox'
+          GHES_OWNER: ${{ steps.parse-host.outputs.owners }}
         run: |
           git config --global user.name "GitHub Actions Sync"
           git config --global user.email "actions-sync@homeoffice.gov.uk"
