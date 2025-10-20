@@ -1,193 +1,91 @@
-name: Sync Public Workflows to Hub
+name: Reusable workflow for GHES sync.
 
 on:
-  push:
-    branches:
-      - main
-
-  workflow_dispatch:
-  #schedule:
-    # Run hourly
-    #- cron: '0 * * * *'
+  workflow_call:
+    inputs:
+      ghes-instance-url:
+        description: 'The GHES instance URL e.g. https://github.<GHES-HOSTNAME>'
+        required: true
+        type: string
+      ghes-owner:
+        description: 'The organisation within the GHES instance that you want your repo synced to'
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+    secrets:
+      APP_ID:
+        required: true
+      PRIVATE_KEY:
+        required: true
 
 jobs:
-  generate-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      repos: ${{ steps.set-matrix.outputs.repos }}
+  sync-to-ghes:
+    runs-on: cc-ghec-actions-runner
+    environment: ${{ inputs.environment }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Generate matrix from workflow_repos.txt
-        id: set-matrix
-        run: |
-          repos_json=$(jq -c -R -s 'split("\n") | map(select(length > 0))' workflow_repos.txt)
-          echo "repos=${repos_json}" >> $GITHUB_OUTPUT
-
-  sync-to-hub:
-    needs: generate-matrix
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        repo: ${{ fromJSON(needs.generate-matrix.outputs.repos) }}
-    steps:
-      - name: Generate token from GitHub App
-        id: generate-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.HUB_APP_ID }}
-          private-key: ${{ secrets.HUB_APP_PRIVATE_KEY }}
-          owner: UKHomeOffice
-
-      - name: Checkout hub repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: UKHomeOffice/core-cloud-workflows-actions-sync
-          token: ${{ steps.generate-token.outputs.token }}
-          path: hub
           fetch-depth: 0
 
-      - name: Checkout source repository ${{ matrix.repo }}
-        uses: actions/checkout@v4
+      - name: Parse GHES Host
+        id: parse-host
+        run: |
+          hostname=$(echo "${{ inputs.ghes-instance-url }}" | sed -E 's#^https?://([^/]+)/?#\1#')
+          echo $hostname
+          echo "hostname=$hostname" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App Token for GHES
+        id: get_ghes_token
+        uses: actions/create-github-app-token@v2
         with:
-          repository: UKHomeOffice/${{ matrix.repo }}
-          token: ${{ steps.generate-token.outputs.token }}
-          path: source-repo
-          fetch-depth: 0
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          github-api-url: 'https://${{ steps.parse-host.outputs.hostname }}/api/v3'
+          owner: ${{ inputs.ghes-owner }}
 
-      - name: Sync and Commit via API for ${{ matrix.repo }}
-        shell: bash
+      - name: Create GHES repo if it doesn't exist
+        id: create_repos
         env:
-          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
-          REPO_FULL_NAME: "UKHomeOffice/core-cloud-workflows-actions-sync"
+          GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
+          GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
+          REPO: ${{ github.event.repository.name }}
+          GHES_OWNER: ${{ inputs.ghes-owner }}
         run: |
-          mkdir -p "./hub/workflows/${{ matrix.repo }}"
-          rsync -av --delete --exclude='.git' "./source-repo/" "./hub/workflows/${{ matrix.repo }}/"
-          echo "File sync complete."
-
-          cd ./hub
-
-          LATEST_COMMIT_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/ref/heads/main" --jq '.object.sha')
-          if [[ -z "$LATEST_COMMIT_SHA" ]]; then echo "Error: Could not get latest commit SHA."; exit 1; fi
-          echo "✅ Got latest commit SHA: $LATEST_COMMIT_SHA"
-
-          BASE_TREE_SHA=$(gh api "repos/${REPO_FULL_NAME}/git/commits/${LATEST_COMMIT_SHA}" --jq '.tree.sha')
-          if [[ -z "$BASE_TREE_SHA" ]]; then echo "Error: Could not get base tree SHA."; exit 1; fi
-          echo "✅ Got base tree SHA: $BASE_TREE_SHA"
-
-          tree_data=()
-          while IFS= read -r -d '' line; do
-            status=${line:0:2}
-            path=${line:3}
-            mode="100644" # Assume standard file mode
-
-            if [[ -d "$path" ]]; then
-              continue
-            fi
-
-            if [[ "$status" == " D" ]]; then
-              # Handle deleted files
-              tree_data+=("{\"path\":\"${path}\",\"mode\":\"${mode}\",\"sha\":null}")
-            elif [[ "$status" == "??" || "$status" == " M" || "$status" == " A" ]]; then
-              # Handle new or modified files
-              blob_sha=$(gh api repos/${REPO_FULL_NAME}/git/blobs -f content="$(cat "$path")" -f encoding="utf-8" --jq '.sha')
-              tree_data+=("{\"path\":\"${path}\",\"mode\":\"${mode}\",\"type\":\"blob\",\"sha\":\"${blob_sha}\"}")
-            fi
-          done < <(git status --porcelain -z)
-
-          if [ ${#tree_data[@]} -eq 0 ]; then
-            echo "✅ No committable changes found after processing status. Exiting."
-            exit 0
-          fi
-          tree_json=$(IFS=,; echo "[${tree_data[*]}]")
-          NEW_TREE_SHA=$(gh api repos/${REPO_FULL_NAME}/git/trees -f "tree=${tree_json}" -f "base_tree=${BASE_TREE_SHA}" --jq '.sha')
-          if [[ -z "$NEW_TREE_SHA" ]]; then echo "Error: Failed to create new tree object."; exit 1; fi
-          echo "✅ Created new tree with SHA: $NEW_TREE_SHA"
-
-          COMMIT_MESSAGE="Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          NEW_COMMIT_SHA=$(gh api repos/${REPO_FULL_NAME}/git/commits -f message="$COMMIT_MESSAGE" -f tree="$NEW_TREE_SHA" -f "parents[]=$LATEST_COMMIT_SHA" --jq '.sha')
-          if [[ -z "$NEW_COMMIT_SHA" ]]; then echo "Error: Failed to create new commit object."; exit 1; fi
-          echo "✅ Created new commit with SHA: $NEW_COMMIT_SHA"
-
-          gh api repos/${REPO_FULL_NAME}/git/refs/heads/main -X PATCH -f sha="$NEW_COMMIT_SHA"
-          echo "🎉 Successfully pushed verified commit to main branch."
-
-      - name: Import GPG key and Configure Git
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          HUB_APP_SLUG: "workflows-actions-sync"
-          HUB_APP_ID: ${{ secrets.HUB_APP_ID }}
-        run: |
-          # Import the GPG key
-          GIT_USER_NAME="${HUB_APP_SLUG}[bot]"
-          GIT_USER_EMAIL="${HUB_APP_ID}+${HUB_APP_SLUG}[bot]@users.noreply.github.com"
-          echo "Configuring Git with user: $GIT_USER_NAME and email: $GIT_USER_EMAIL"
-
-          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --import --batch --yes
-
-          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec:' | head -n 1 | cut -d: -f5)
-
-          if [ -z "$GPG_KEY_ID" ]; then
-            echo "Failed to find GPG key ID after import."
-            exit 1
-          fi
-
-          echo "Successfully imported GPG key with ID: $GPG_KEY_ID"
-
-          git config --global user.name "$GIT_USER_NAME"
-          git config --global user.email "$GIT_USER_EMAIL"
-          git config --global user.signingkey "$GPG_KEY_ID"
-          git config --global commit.gpgsign true
-
-      - name: ⛔️ DEBUG - Verify GPG and Git Identity
-        shell: bash
-        run: |
-          echo "--- Verifying GPG Key Identity ---"
-          # This command shows the email address embedded in the GPG key.
-          gpg --list-secret-keys --with-colons | grep 'uid'
-
-          echo ""
-          echo "--- Verifying Git Config Identity ---"
-          # These commands show the email address Git will use for the commit.
-          git config --global user.name
-          git config --global user.email
-          
-          echo ""
-          echo "--- Expected GitHub App Bot Email ---"
-          # This constructs the email GitHub requires for verification.
-          echo "${{ secrets.HUB_APP_ID }}+core-cloud-workflows-actions-sync[bot]@users.noreply.github.com"
-
-      - name: Sync ${{ matrix.repo }} to Hub Repository
-        shell: bash
-        run: |
-          # Define base paths
-          HUB_DIR="./hub"
-          SOURCE_DIR="./source-repo"
-          
-          # --- DEBUGGING STEP ---
-          echo "Current working directory:"
-          pwd
-          echo "Attempting to create directory: [${HUB_DIR}/workflows/${{ matrix.repo }}]"
-          # --- END DEBUGGING ---
-
-          # Ensure the full destination path exists, constructing the path directly
-          mkdir -p "${HUB_DIR}/workflows/${{ matrix.repo }}"
-
-          # Use rsync to safely copy files, constructing the path directly
-          rsync -av --delete --exclude='.git' "${SOURCE_DIR}/" "${HUB_DIR}/workflows/${{ matrix.repo }}/"
-
-          # Stage changes
-          git -C "$HUB_DIR" add "workflows/${{ matrix.repo }}"
-
-          # Check for changes and commit if necessary
-          if ! git -C "$HUB_DIR" diff --staged --quiet; then
-            git -C "$HUB_DIR" commit -m "Sync ${{ matrix.repo }} - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git -C "$HUB_DIR" push "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/UKHomeOffice/core-cloud-workflows-actions-sync.git" main
-            echo "✅ Successfully synced ${{ matrix.repo }} to hub"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GHES_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://$GHES_HOST/api/v3/repos/$GHES_OWNER/$REPO)
+          echo $HTTP_STATUS
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "Success: Repository '$GHES_OWNER/$REPO' exists."
           else
-            echo "  No changes detected for ${{ matrix.repo }}"
+            curl -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GHES_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              https://${GHES_HOST}/api/v3/orgs/${GHES_OWNER}/repos \
+              -d "{\"name\":\"${REPO}\",\"description\":\"A reusable workflow of ${REPO} synced from the repo stored in github.com\",\"visibility\":\"public\",\"has_projects\":false,\"has_issues\":false,\"homepage\":\"https://github.com/${GHES_OWNER}/${REPO}\"}"
           fi
+
+      - name: Set up GHES remote and push
+        env:
+          GHES_TOKEN: ${{ steps.get_ghes_token.outputs.token }}
+          GHES_HOST: ${{ steps.parse-host.outputs.hostname }}
+          REPO: ${{ github.event.repository.name }}
+          GHES_OWNER: ${{ inputs.ghes-owner }}
+        run: |
+          git config --global user.name "GitHub Actions Sync"
+          git config --global user.email "actions-sync@homeoffice.gov.uk"
+          git remote add ghes "https://x-access-token:${GHES_TOKEN}@${GHES_HOST}/${GHES_OWNER}/${REPO}.git" 
+          git remote -v
+          echo "Pushing to GHES..."
+
+          git push ghes --all --force
+          git push ghes --tags --force
+          
+          echo "Sync complete."
