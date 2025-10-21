@@ -5,14 +5,19 @@ This is a consumable reusable workflow that synchronises your repo with a single
 ## Prerequisites
 
 1: Ensure the workflows-actions-sync Github app exists in the GHES instance you're syncing with.
+
 2: If not, create a new Github app with read-write Repository permissions on Administration, Contents and Workflows, note the app id, generate a private key, store both in AWS Secrets Manager in the GHES instance's AWS account and install the app under the correct organization.
+
 3: The runner you're using must be able to reach github.com AND your GHES instance. The runner group must also have repository access to your repo and workflow access to this repo.
 
 ## Setup
 
 1: Go to your repo's Settings > Environments.
+
 2: Add the name of the environment where the GHES instance resides.
+
 3: Add secrets APP_ID and PRIVATE_KEY. Values can be found in Secrets Manager in the AWS account that the GHES instance resides in.
+
 4: Add the following caller workflow to your repo and edit accordingly.
 
 ```
