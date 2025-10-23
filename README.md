@@ -42,6 +42,7 @@ jobs:
       ghes-instance-url: 'https://<GHES-HOSTNAME1>'
       ghes-owner: '<GHES-OWNER1>'
       environment: '<ENV-NAME1>'
+      runner: '<GHES-RUNNER1>'
     secrets: inherit
   sync-<ENV_NAME2>:
     name: Sync to <ENV_NAME2> GHES instance
@@ -50,6 +51,7 @@ jobs:
       ghes-instance-url: 'https://<GHES-HOSTNAME2>'
       ghes-owner: '<GHES-OWNER2>'
       environment: '<ENV-NAME2>'
+      runner: '<GHES-RUNNER2>'
     secrets: inherit
 ```
 5: Push a new tag or merge to main branch to start the process.

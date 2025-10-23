@@ -11,6 +11,11 @@ on:
         description: 'The organisation within the GHES instance that you want your repo synced to'
         required: true
         type: string
+      runner:
+        description: 'For use with a specific runner'
+        type: string
+        required: false
+        default: 'ubuntu-latest'
       environment:
         required: true
         type: string
@@ -22,7 +27,7 @@ on:
 
 jobs:
   sync-to-ghes:
-    runs-on: cc-ghec-actions-runner
+    runs-on: ${{ inputs.runner }}
     environment: ${{ inputs.environment }}
     steps:
       - name: Checkout repository
